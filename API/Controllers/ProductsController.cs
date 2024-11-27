@@ -1,4 +1,5 @@
 ﻿using Core.Entities;
+using Core.Interfaces;
 using Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -8,23 +9,18 @@ namespace API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class ProductsController : ControllerBase
+    public class ProductsController(IProductRepository productRepository) : ControllerBase
     {
-        private readonly StoreContext _context;
-        public ProductsController(StoreContext context)
-        {
-            _context = context;
-        }
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Product>>> GetProducts()
+        public async Task<ActionResult<IEnumerable<Product>>> GetProducts(string? brand, string? type, string? sort)
         {
-            return await _context.Products.ToListAsync();
+            return Ok(await productRepository.GetProductsAsync(brand, type, sort));
         }
 
         [HttpGet("{id:int}")]
         public async Task<ActionResult<Product>> GetProduct(int id) //  api/products/2
         {
-            var product = await _context.Products.FindAsync(id);
+            var product = await productRepository.GetProductByIdAsync(id);
 
             if (product == null)
                 return NotFound();
@@ -35,9 +31,14 @@ namespace API.Controllers
         [HttpPost]
         public async Task<ActionResult<Product>> CreateProduct(Product product)
         {
-            _context.Products.Add(product);
-            await _context.SaveChangesAsync();
-            return product;
+            productRepository.AddProduct(product);
+
+            if (await productRepository.SaveChangesAsync())
+            {
+                return CreatedAtAction("GetProduct", new { id = product.Id }, product);  //gives the created product location in response header
+            }
+
+            return BadRequest("Problem Creating Product");
         }
 
         [HttpPut("{id:int}")]
@@ -48,38 +49,52 @@ namespace API.Controllers
                 return BadRequest("Product ID mismatch.");
             }
 
-            if (!ProductExists(id))
+            if (!productRepository.ProductExists(id))
             {
                 return NotFound($"Product with ID {id} not found.");
             }
 
-            _context.Entry(product).State = EntityState.Modified;
+            productRepository.UpdateProduct(product);
 
-            await _context.SaveChangesAsync();
-
-            return NoContent();
+            if (await productRepository.SaveChangesAsync())
+            {
+                return NoContent();
+            }
+            return BadRequest("Error with updating product");
         }
 
         [HttpDelete("{id:int}")]
         public async Task<ActionResult> DeleteProduct(int id)
         {
-            var product = await _context.Products.FindAsync(id);
+            var product = await productRepository.GetProductByIdAsync(id);
 
             if (product == null)
             {
                 return NotFound($"Product with ID {id} not found.");
             }
 
-            _context.Products.Remove(product);
+            productRepository.DeleteProduct(product);
 
-            await _context.SaveChangesAsync();
-
-            return NoContent();
+            if (await productRepository.SaveChangesAsync())
+            {
+                return NoContent();
+            }
+            return BadRequest("Error with deleting product");
         }
-
-        private bool ProductExists(int id)
+        [HttpGet("brands")]
+        public async Task<ActionResult<IReadOnlyList<string>>> GetBrands()
         {
-            return _context.Products.Any(p => p.Id == id);
+            return Ok(await productRepository.GetBrandsAsync());
         }
+        [HttpGet("types")]
+        public async Task<ActionResult<IReadOnlyList<string>>> GetTypes()
+        {
+            return Ok(await productRepository.GetTypesAsync());
+        }
+
+        //private bool ProductExists(int id)
+        //{
+        //    return productRepository.ProductExists(id);
+        //}
     }
 }
